@@ -21,15 +21,23 @@
  */
 package org.jboss.portletbridge.bridge.controller;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
+import com.sun.faces.context.StateContext;
+import org.jboss.portletbridge.bridge.config.BridgeConfig;
+import org.jboss.portletbridge.bridge.context.BridgeContext;
+import org.jboss.portletbridge.bridge.event.BridgePostConstructFacesContextSystemEvent;
+import org.jboss.portletbridge.bridge.event.BridgePreReleaseFacesContextSystemEvent;
+import org.jboss.portletbridge.bridge.logger.BridgeLogger.Level;
+import org.jboss.portletbridge.bridge.scope.BridgeRequestScope;
+import org.jboss.portletbridge.bridge.scope.BridgeRequestScopeManager;
+import org.jboss.portletbridge.context.AbstractExternalContext;
+import org.jboss.portletbridge.context.flash.PortletFlash;
+import org.jboss.portletbridge.lifecycle.PortalPhaseListener;
+import org.jboss.portletbridge.lifecycle.PublicParameterPhaseListener;
+import org.jboss.portletbridge.lifecycle.RenderResponsePhaseListener;
+import org.jboss.portletbridge.util.BeanWrapper;
+import org.jboss.portletbridge.util.FacesMessageWrapper;
+import org.jboss.portletbridge.util.ParameterFunction;
+import org.jboss.portletbridge.util.PublicParameterUtil;
 
 import javax.el.ELContext;
 import javax.el.ValueExpression;
@@ -65,25 +73,18 @@ import javax.portlet.StateAwareResponse;
 import javax.portlet.faces.Bridge;
 import javax.portlet.faces.BridgeException;
 import javax.portlet.faces.event.EventNavigationResult;
-
-import org.jboss.portletbridge.bridge.config.BridgeConfig;
-import org.jboss.portletbridge.bridge.context.BridgeContext;
-import org.jboss.portletbridge.bridge.event.BridgePostConstructFacesContextSystemEvent;
-import org.jboss.portletbridge.bridge.event.BridgePreReleaseFacesContextSystemEvent;
-import org.jboss.portletbridge.bridge.logger.BridgeLogger.Level;
-import org.jboss.portletbridge.bridge.scope.BridgeRequestScope;
-import org.jboss.portletbridge.bridge.scope.BridgeRequestScopeManager;
-import org.jboss.portletbridge.context.AbstractExternalContext;
-import org.jboss.portletbridge.context.flash.PortletFlash;
-import org.jboss.portletbridge.lifecycle.PortalPhaseListener;
-import org.jboss.portletbridge.lifecycle.PublicParameterPhaseListener;
-import org.jboss.portletbridge.lifecycle.RenderResponsePhaseListener;
-import org.jboss.portletbridge.util.BeanWrapper;
-import org.jboss.portletbridge.util.FacesMessageWrapper;
-import org.jboss.portletbridge.util.ParameterFunction;
-import org.jboss.portletbridge.util.PublicParameterUtil;
-
-import com.sun.faces.context.StateContext;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 
 /**
  * @author <a href="http://community.jboss.org/people/kenfinni">Ken Finnigan</a>
@@ -98,6 +99,7 @@ public class Jsf20ControllerImpl implements BridgeController {
     private static final String MANAGED_BEANS_WRAPPER = "org.jboss.portletbridge.managedBeansHolder";
     private static final String REQUEST_SCOPE_ID = "__pbrReqScopeId";
     private static final String FACES_EXECUTED_DURING_ACTION_REQUEST = "facesDuringAction";
+    private static final String AUTOMATIC_RESOURCE_DISPATCHING = "javax.portlet.automaticResourceDispatching";
 
     public Jsf20ControllerImpl(BridgeConfig bridgeConfig) {
         this.bridgeConfig = bridgeConfig;
@@ -297,7 +299,9 @@ public class Jsf20ControllerImpl implements BridgeController {
                 // JSF2 Resource
                 resourceHandler.handleResourceRequest(facesContext);
             } else if (null != resourceId) {
-                renderNonFacesResource(bridgeContext, resourceId);
+                if (isAutomaticResourceDispatchingEnabled(bridgeContext)) {
+                    renderNonFacesResource(bridgeContext, resourceId);
+                }
             } else {
                 renderFacesResource(bridgeContext, facesContext, facesLifecycle);
             }
@@ -648,6 +652,12 @@ public class Jsf20ControllerImpl implements BridgeController {
             PortletException, IOException {
 
         if (null != resourceId) {
+            try {
+                resourceId = new URI(resourceId).normalize().getPath();
+            } catch (URISyntaxException e) {
+                throw new IOException("Unable to normalize the path to the resourceId");
+            }
+
             PortletContext portletContext = bridgeContext.getPortletContext();
             PortletRequestDispatcher dispatcher = portletContext.getRequestDispatcher(resourceId);
 
@@ -670,9 +680,36 @@ public class Jsf20ControllerImpl implements BridgeController {
                     ((ResourceResponse) bridgeContext.getPortletResponse()).setContentType(mimeType);
                 }
 
+                // some security checks
+                String excludedResources = portletContext.getInitParameter(ResourceHandler.RESOURCE_EXCLUDES_PARAM_NAME);
+                if (null == excludedResources || excludedResources.isEmpty()) {
+                    excludedResources = ResourceHandler.RESOURCE_EXCLUDES_DEFAULT_VALUE;
+                }
+
+                if (isProtectedResource(resourceId) || isExcludedResource(excludedResources, resourceId)) {
+                    FacesContext context = FacesContext.getCurrentInstance();
+                    if (null != context) {
+                        throw new IOException("The requested resource is protected.");
+                    }
+                    return;
+                }
+
                 dispatcher.forward(bridgeContext.getPortletRequest(), bridgeContext.getPortletResponse());
             }
         }
+    }
+
+    private boolean isExcludedResource(String excludedResources, String resourceId) {
+        String extension = resourceId.substring(resourceId.indexOf('.'));
+        return Arrays.asList(excludedResources.split(",")).contains(extension);
+    }
+
+    private boolean isProtectedResource(String resourceId) {
+        String resourceIdCleaned = resourceId.toUpperCase();
+        return resourceIdCleaned.startsWith("/WEB-INF/") ||
+                resourceIdCleaned.startsWith("/META-INF/") ||
+                resourceIdCleaned.startsWith("WEB-INF/") ||
+                resourceIdCleaned.startsWith("META-INF/");
     }
 
     protected FacesContext getFacesContext(BridgeContext bridgeContext, Lifecycle facesLifecycle) throws FacesException {
@@ -787,5 +824,9 @@ public class Jsf20ControllerImpl implements BridgeController {
 
     protected String stateContextListenerClassname() {
         return "com.sun.faces.context.StateContext$AddRemoveListener";
+    }
+
+    private boolean isAutomaticResourceDispatchingEnabled(BridgeContext bridgeContext) {
+        return "true".equalsIgnoreCase(bridgeContext.getPortletContext().getInitParameter(AUTOMATIC_RESOURCE_DISPATCHING));
     }
 }
