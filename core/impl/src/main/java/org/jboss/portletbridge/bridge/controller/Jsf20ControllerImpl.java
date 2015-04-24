@@ -22,6 +22,7 @@
 package org.jboss.portletbridge.bridge.controller;
 
 import com.sun.faces.context.StateContext;
+
 import org.jboss.portletbridge.bridge.config.BridgeConfig;
 import org.jboss.portletbridge.bridge.context.BridgeContext;
 import org.jboss.portletbridge.bridge.event.BridgePostConstructFacesContextSystemEvent;
@@ -62,6 +63,7 @@ import javax.faces.lifecycle.LifecycleFactory;
 import javax.faces.render.ResponseStateManager;
 import javax.portlet.EventRequest;
 import javax.portlet.EventResponse;
+import javax.portlet.PortletConfig;
 import javax.portlet.PortletContext;
 import javax.portlet.PortletException;
 import javax.portlet.PortletRequest;
@@ -73,6 +75,7 @@ import javax.portlet.StateAwareResponse;
 import javax.portlet.faces.Bridge;
 import javax.portlet.faces.BridgeException;
 import javax.portlet.faces.event.EventNavigationResult;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -827,6 +830,12 @@ public class Jsf20ControllerImpl implements BridgeController {
     }
 
     private boolean isAutomaticResourceDispatchingEnabled(BridgeContext bridgeContext) {
-        return "true".equalsIgnoreCase(bridgeContext.getPortletContext().getInitParameter(AUTOMATIC_RESOURCE_DISPATCHING));
+        Object o = bridgeContext.getPortletRequest().getAttribute("javax.portlet.config");
+        if (o instanceof PortletConfig) {
+            PortletConfig portletConfig = (PortletConfig) o;
+            String autoDispatch = portletConfig.getInitParameter(AUTOMATIC_RESOURCE_DISPATCHING);
+            return "true".equalsIgnoreCase(autoDispatch);
+        }
+        return false;
     }
 }
