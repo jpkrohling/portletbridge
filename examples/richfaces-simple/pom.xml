@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.jboss.portletbridge</groupId>
         <artifactId>portletbridge-parent</artifactId>
-        <version>3.3.4.Final-prod-3</version>
+        <version>3.3.4.Final-prod-4-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
