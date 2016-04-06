@@ -35,9 +35,13 @@
  */
 package basicajax;
 
+import javax.faces.FactoryFinder;
 import javax.faces.bean.ManagedBean;
 import javax.faces.bean.SessionScoped;
 import javax.faces.event.ActionEvent;
+import javax.faces.event.PhaseListener;
+import javax.faces.lifecycle.Lifecycle;
+import javax.faces.lifecycle.LifecycleFactory;
 import java.io.Serializable;
 
 @ManagedBean(name = "echo")
@@ -49,6 +53,14 @@ public class Echo implements Serializable {
     String str = "hello";
 
     public String getStr() {
+        LifecycleFactory lifecycleFactory = (LifecycleFactory) FactoryFinder.getFactory(FactoryFinder.LIFECYCLE_FACTORY);
+        Lifecycle lifecycle = lifecycleFactory.getLifecycle("CustomLifecycleImpl");
+        System.out.println("Lifecycle: " + lifecycle.getClass().getName());
+        for (int i = (lifecycle.getPhaseListeners().length - 1); i >= 0; i--) {
+            PhaseListener listener = lifecycle.getPhaseListeners()[i];
+            System.out.println("Got this listener: " + listener.getClass().getName() + " on this phase ID " + listener.getPhaseId());
+        }
+
         return str;
     }
 

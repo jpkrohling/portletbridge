@@ -13,6 +13,10 @@
         <param-name>javax.faces.FACELETS_VIEW_MAPPINGS</param-name>
         <param-value>*.xhtml</param-value>
     </context-param>
+    <context-param>
+        <param-name>javax.faces.LIFECYCLE_ID</param-name>
+        <param-value>CustomLifecycleImpl</param-value>
+    </context-param>
     <!-- Facelets development mode (disable in production) -->
     <context-param>
         <param-name>facelets.DEVELOPMENT</param-name>
